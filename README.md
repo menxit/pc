@@ -209,6 +209,7 @@ Non abilitare le interruzioni potrebbe invece portare a una situazione in cui l'
 
 Ecco la situazione:
 
+```
 CPU( i )					CPU( j )			i <> j
 fde(P)
 P(SX)
@@ -221,7 +222,7 @@ LOCK(SX)
  ..
  ..
 UNLOCK(SX)		
-
+```
 
 ## I semafori di Dijkstra garantiscono fairness?
 No, perché non la garantisce il semaforo di basso livello utilizzato per la sua implementazione.
