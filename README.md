@@ -230,3 +230,90 @@ No, perché non la garantisce il semaforo di basso livello utilizzato per la sua
 
 # I cinque filosofi mangiatori di spaghetti
 
+Cinque filosofi trascorrono la vita alternando, ciascuno indipendentemente dagli altri, periodi in cui pensano, a periodi in cui mangiano degli spaghetti.
+
+Per raccogliere gli spaghetti ogni filosofo necessita delle due forchette poste rispettivamente a destra e a sinistra del proprio piatto. Trovare una strategia che consenta a ciascun filosofo di ottenere sempre le due forchette richieste.
+
+In questo contesto i flussi di esecuzione sono i 5 filosofi, mentre le forchette rappresentano le risorse condivise.
+
+Prevediamo che ogni filosofo segua un protocollo di questo tipo:
+
+```pascal
+loop
+	<<pensa>>;
+	<<impossessati delle due forchette>>;
+	<<mangia>>;
+	<<rilascia le due forchette>>;
+end
+```
+
+## Soluzione con stallo
+
+Le forchette sono modellate con una variabile condivisa. In particolare abbiamo 4 semaforo, ovvero un semaforo per ogni forchetta. Questo ci servirà per far si che ciascuna forchetta venga utilizzata da un filosofo (fde) alla volta.
+```pascal
+var F: shared array[0..4] of semaforo;
+```
+
+```pascal
+// Qui viene definito il tipo filosofo.
+// Vedi dopo.
+type filosofo = concurrent procedure (I: 0..4);
+	begin loop
+		<<pensa>>;
+		
+		// Mettiti in attesa passiva
+		// di una V sulla forchetta i (quella a destra)
+		// o prendila se è disponibile.
+		P(F[ i ]);
+		
+		// Stessa cosa di sopra per la forchetta
+		// a sinistra.
+		P(F[ (i+1) mod 5 ]);
+		
+		<<mangia>>;
+		
+		// Sveglia il filosofo accanto se è affamato
+		// o libera la risorsa
+		V(F[ (i+1) mod 5 ]);
+		V(F[ i ]);
+
+	end
+
+// Qui si dichiarano 5 variabile di tipo filosofo
+var A, B, C, D, E: filosofo;
+
+// Qui si dichiara un array di dimensione 4
+// di tipo semaforo. Tutti i semafori hanno come
+// valore di default
+var F[4]: semaforo;
+
+begin
+	cobegin A(0) || B(1) || C(2) || D(3) || E(4) coend
+end
+```
+
+## Soluzione senza stallo (ma con starvation)
+
+```pascal
+// d'ora in poi questi semafori rappresentano la coppia
+// di forchette dell'iesimo filosofo.
+var F[4]: semaforo;
+```
+
+```pascal
+// FP[ i ] è verso se e solo se l'i-esima coppia di
+// forchette è prenotata.
+var FP[4]: boolean;
+```
+
+```pascal
+// vero se e solo se l'i-esimo filosofo è affamato
+var A[4]: boolean;
+```
+
+```pascal
+// un semaforo binario R per accedere allo stato
+// corrente (vettori A e FP) in mutua esclusione.
+var R: semaforo;
+```
+
