@@ -292,28 +292,61 @@ begin
 end
 ```
 
-## Soluzione senza stallo (ma con starvation)
+## Soluzione conservativa, senza stallo ma con starvation
 
 ```pascal
+type filosofo = concurrente procedure (I: 0..4);
+	begin
+		<<pensa>
+		prendi_forchette( i );
+		<<mangia>>;
+		posa_forchette( i );
+	end
+
+var A, B, C, D, E: filosofo;
+var J: 0..4;
+
 // d'ora in poi questi semafori rappresentano la coppia
 // di forchette dell'iesimo filosofo.
+// 01, 12, 23, 34, 40
 var F[4]: semaforo;
-```
 
-```pascal
 // FP[ i ] è verso se e solo se l'i-esima coppia di
-// forchette è prenotata.
+// Forchetta Prenotata
 var FP[4]: boolean;
-```
 
-```pascal
-// vero se e solo se l'i-esimo filosofo è affamato
+// vero se e solo se l'i-esimo filosofo è Affamato
 var A[4]: boolean;
-```
 
-```pascal
 // un semaforo binario R per accedere allo stato
 // corrente (vettori A e FP) in mutua esclusione.
 var R: semaforo;
+
+begin
+	INIZ_SEM(R,1);
+	for J <- 0 to 4 do INIZ_SEM(F[J], 0);
+	for J <- 0 to 4 do FP[J] <- false;
+	for J <- 0 to 4 do A[J] <- false;
+	cobegin A(0) || B(1) || C(2) || D(3) || E(4) coend
+end
 ```
 
+```pascal
+concurrente procedure prendi_forchette(I:0..4)
+begin
+	P(R);
+	A[I] <- true;
+	test(I);
+	V(R);
+	P(F[I]);
+end
+
+concurrent procedure test(I:0..4)
+begin
+	if(A[I] and not(FP[ (I-1) mod 5]) and not(FP[ (I+1) mod 5 ])))
+	begin
+		FP[ I ] <- TRUE;
+		V(F[ I ]);
+	end
+end
+```
