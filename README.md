@@ -334,12 +334,45 @@ end
 ```pascal
 concurrente procedure prendi_forchette(I:0..4)
 begin
+	// Faccio la P su R. R è un semaforo binario ed è verde quando
+	// né A né FP è posseduto da un fde.
 	P(R);
+
+	// Filosofo corrente affamato.
 	A[I] <- true;
+
+	// Controlla che il filosofo corrente sia affamato
+	// e che la forchetta alla sua sinistra e alla sua destra
+	// non sia stata prenotata. Se tutto questo è vero
+	// allora setta l'i-esima coppia di forchette su true (FP)
+	// inoltre fa la V(F[ i ]).
 	test(I);
+
+	// Rilascia la risorsa A.
 	V(R);
+
+	// Richiedi la risorsa F, che corrisponde
+	// alla coppia forchette necessaria al filosofo.
 	P(F[I]);
 end
+
+concurrent procedure posa_forchette(I:0..4)
+begin
+	P(R);
+	
+	// la coppia di forchette on è più prenotata
+	// e il filosofo non è più affamato
+	FP[ I ] <- false;
+	A[ I ] <- false;
+	
+	// sveglio il filosofo alla sinistra e alla destra
+	// e gli dico che se anche l'altra forchetta è libera
+	// possono completare la P(F[ I ])
+	test( (I-1) mod 5 );
+	test( (I+1) mod 5 );
+	
+	V(R);
+END
 
 concurrent procedure test(I:0..4)
 begin
@@ -350,3 +383,5 @@ begin
 	end
 end
 ```
+
+# Il barbiere dormiente
