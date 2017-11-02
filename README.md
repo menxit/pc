@@ -249,7 +249,7 @@ end
 
 ## Soluzione con stallo
 
-Le forchette sono modellate con una variabile condivisa. In particolare abbiamo 4 semaforo, ovvero un semaforo per ogni forchetta. Questo ci servirà per far si che ciascuna forchetta venga utilizzata da un filosofo (fde) alla volta.
+Le forchette sono modellate con una variabile condivisa. In particolare abbiamo 4 semafori, ovvero un semaforo per ogni forchetta. Questo ci servirà per far si che ciascuna forchetta venga utilizzata da un filosofo (fde) alla volta.
 ```pascal
 var F: shared array[0..4] of semaforo;
 ```
@@ -332,7 +332,7 @@ end
 ```
 
 ```pascal
-concurrente procedure prendi_forchette(I:0..4)
+concurrent procedure prendi_forchette(I:0..4)
 begin
 	// Faccio la P su R. R è un semaforo binario ed è verde quando
 	// né A né FP è posseduto da un fde.
@@ -345,14 +345,21 @@ begin
 	// e che la forchetta alla sua sinistra e alla sua destra
 	// non sia stata prenotata. Se tutto questo è vero
 	// allora setta l'i-esima coppia di forchette su true (FP)
-	// inoltre fa la V(F[ i ]).
+	// inoltre fa la V(F[ i ]). La V(F[ i ]) viene fatta
+	// perché di default il semaforo è rosso, quindi la risorsa
+	// deve effettivamente essere liberata.
+	// nel caso in cui il test non andasse a buon fine
+	// il filosofo si metterebbe semplicemente i attesa
+	// che la sua coppia di forchette venga rilasciata dai
+	// filosofi che la stanno utilizzando in questo momento.
 	test(I);
 
-	// Rilascia la risorsa A.
+	// Rilascia le risorse A e FP a chi le ha richieste.
 	V(R);
 
-	// Richiedi la risorsa F, che corrisponde
-	// alla coppia forchette necessaria al filosofo.
+	// Richiedo la i-esima coppia di forchette. 
+	// qui vengono svegliati dai test di un filosofo accato
+	// oppure se la coppia di forchette è libera vengono subito prese.
 	P(F[I]);
 end
 
@@ -365,9 +372,9 @@ begin
 	FP[ I ] <- false;
 	A[ I ] <- false;
 	
-	// sveglio il filosofo alla sinistra e alla destra
-	// e gli dico che se anche l'altra forchetta è libera
-	// possono completare la P(F[ I ])
+	// controllo che i filosofi alla sinistra e alla destra
+	// siano affamati e che non abbiamo una delle due forchette
+	// accanto occupate. In quel caso li sveglio con la V(F[i])
 	test( (I-1) mod 5 );
 	test( (I+1) mod 5 );
 	
@@ -385,3 +392,90 @@ end
 ```
 
 # Il barbiere dormiente
+In un negozio lavora un solo barbiere, ci sono N sedie, per accogliere i clienti in attesa ed una sedia di lavoro. Se non ci sono clienti, il barbiere si addormenta sulla sedia di lavoro. Quando arriva un cliente, questi deve svegliare il barbiere, se addormentato, od accomodarsi su una dellesedie in attesa che finisca il taglio corrente, Se nessuna sedia è disponibile preferisce non aspettare e lascia il negozio.
+
+Qui ci sono due flussi: quello del barbiere e quello de clienti.
+
+```
+type barbiere = concurrent procedure;
+	begin /* ... */ end type
+
+cliente = concurrent procedure;
+	begin /* ... */ end
+
+var Dormiente: barbiere;
+
+var CLIENTE array[0..NUM_CLIENTI] of cliente
+
+// C approssimato al cliente, semaforo in stile cooperativo
+// B approssimato al barbiere, semaforo in stile cooperativo
+// MX, semaforo binario, stile competitivo che protegge la 
+// variabile in_attesa.
+var C, MX, B: semaforo;
+
+var N = 5;
+
+var in_attesa : intero;
+
+begin
+
+	INIZ_SEM(MX,1);
+	INIZ_SEM(C,0);
+	INIZ_SEM(B,0);
+
+	fork Dormiente;
+
+	// Cobegin e coend parametrizzato con il numero di clienti
+	for J <- 0 to NUM_CLIENTI do fork CLIENTE[J];
+	for J <- 0 to NUM_CLIENTI do join CLIENTE[J];
+	
+	join Dormiente;
+
+ end
+ ```
+
+```pascal
+concurrent program BARBIERE_DORMIENTE;
+type barbiere = concurrent procedure;
+	begin loop
+	P(C); // attendi clienti
+	P(MX); // aggiorna in m.e. il
+	in_attesa--; // n. di clienti in attesa
+	V(B); // segnala la disponibilità
+	V(MX) // del barbiere
+	<<taglia capelli>>;
+	end
+end;
+```
+
+```pascal
+type cliente = concurrent procedure;
+	begin
+	<<raggiungi il negozio>>
+	P(MX);
+	if (in_attesa < N) begin // se non ci sono posti lascia
+		in_attesa++;
+
+		// Il cliente segnala al barbiere e gli dice,
+		// che c'è un cliente.
+		V(C); // sveglia il barbiere se dorme
+		
+		V(MX);
+		// <---
+		P(B); // aspetta che il barbiere finisca
+		<<siedi per il taglio>>;
+	end
+	else V(MX); // neanche un posto a sedere: meglio ripassare
+end
+```
+
+
+
+# Produttore e Consumatore
+
+```
+                    buffer
+(P) inserimenti --> |||||| --> estrazioni (C)
+```
+
+handoff: scambio di messaggi tra flussi distinti
