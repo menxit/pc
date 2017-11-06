@@ -391,6 +391,40 @@ begin
 end
 ```
 
+Questa soluzione non è ancora fair; due filosofi infatti potrebbero mettersi d'accordo per non far mangiare un terzo. Una soluzione consiste nel violare una delle condizioni di Coffman, in particolare quella di attesa circolare. Questo è possibile ottenerlo prevedendo la richiesta incrementale delle tue forchette e la rpesenza di un filosofo mancino, che quindi acquisisca le forchette nell'ordine opposto agli altri.
+
+```pascal
+loop
+	<<pensa>>;
+	<<impossessati delle due forchette>>;
+	<<mangia>>;
+	<<rilascia le due forchette>>;
+end
+
+concurrent program CINQUE_FILOSOFI_MANGIATORI;
+
+type filosofo = concurrent procedure (I: 0..4, mancino = false);
+	begin
+		if(mancino)
+			P(F[(i-1) % 5]);
+			P(F[i]);
+		else
+			P(F[i]);
+			P(F[(i-1) % 5]);
+	end
+
+var A, B, C, D, E: filosofo;
+
+J: 0..4;
+
+var F: shared array[0..4] of semaforo;
+
+begin
+	for J <- 0 to 4 do INIZ_SEM(F[J], 1);
+	cobegin A(0, true) || B(1) || C(2) || D(3) || E(4) coend
+end
+```
+
 # Il barbiere dormiente
 In un negozio lavora un solo barbiere, ci sono N sedie, per accogliere i clienti in attesa ed una sedia di lavoro. Se non ci sono clienti, il barbiere si addormenta sulla sedia di lavoro. Quando arriva un cliente, questi deve svegliare il barbiere, se addormentato, od accomodarsi su una dellesedie in attesa che finisca il taglio corrente, Se nessuna sedia è disponibile preferisce non aspettare e lascia il negozio.
 
@@ -413,9 +447,11 @@ var CLIENTE array[0..NUM_CLIENTI] of cliente
 // variabile in_attesa.
 var C, MX, B: semaforo;
 
+// Sedie disponibili
 var N = 5;
 
-var in_attesa : intero;
+// Clienti in attesa
+var in_attesa: intero;
 
 begin
 
@@ -437,23 +473,48 @@ begin
 ```pascal
 concurrent program BARBIERE_DORMIENTE;
 type barbiere = concurrent procedure;
+	
 	begin loop
-	P(C); // attendi clienti
-	P(MX); // aggiorna in m.e. il
-	in_attesa--; // n. di clienti in attesa
-	V(B); // segnala la disponibilità
-	V(MX) // del barbiere
+	
+	// cicla e attende l'arrivo di un cliente
+	// per manifestare il proprio interesse all'arrivo
+	// di un cliente, il barbiere fa la P(C)
+	P(C);
+
+	// a questo punto, se arriva un cliente occorre
+	// aggiornare in mutua esclusione i clienti in attesa
+	// che dovrà essere decrementato di uno
+	P(MX);
+
+	// decrementa i clienti in attesa di uno
+	in_attesa--;
+	
+	// a questo punto il barbiere segnala la propria disponibilità
+	V(B);
+	
+ 	// e infine mette a verde il semaforo in mutua esclusione
+	V(MX)
+
 	<<taglia capelli>>;
+	
+
 	end
 end;
 ```
 
 ```pascal
 type cliente = concurrent procedure;
+	
 	begin
+	
 	<<raggiungi il negozio>>
+	
+	// mutua esclusione di in_attesa
 	P(MX);
-	if (in_attesa < N) begin // se non ci sono posti lascia
+	
+	// controlla se ci sono posti a sedere
+	// se non ci sono posti a sedere, il cliente se ne va via
+	if (in_attesa < N) begin
 		in_attesa++;
 
 		// Il cliente segnala al barbiere e gli dice,
@@ -469,8 +530,6 @@ type cliente = concurrent procedure;
 end
 ```
 
-
-
 # Produttore e Consumatore
 
 ```
@@ -478,4 +537,197 @@ end
 (P) inserimenti --> |||||| --> estrazioni (C)
 ```
 
-handoff: scambio di messaggi tra flussi distinti
+Uno dei problemi di cooperazione tra più flussi più semplice in assoluto consiste nel far scambiare un messaggio tra due flussi diversi. Quindi il produttore consumatore modella questo genere di problema. 
+
+In questo problema i due flussi in esame sono P (produttore) e C (consumatore). Questi due flussi devono scambiarsi un messaggio. Per scambiarsi questo messaggio usano un buffer. Dunque il produttore inserisce il messaggio nel buffer e il consumatore lo estrae. 
+
+In questo caso le sequenze di interleaving problematiche sono quelle in cui ad esempio il consumatore si mette a leggere dal buffer quando non c'è niente da leggere, o magari quelle in cui il produttore scrive sul buffer scrivendo un vecchio messaggio che ancora non è stato letto ecc...
+
+Bisogna dunque sincronizzare i due semafori. In particolare occorre sincronizzarsi su due eventi diversi, a cui associamo due diversi semafori binari.
+
+## Soluzione seriale prod-cons-prod-cons...
+
+- DEPOSITATO: ad 1 se e solo se un messaggio è stato depositato ed è prelevabile
+- PRELEVATO: ad 1 se e solo se il buffer è vuoto e pronto ad accogliere un nuovo messaggio
+
+```pascal
+begin
+	INIZ_SEM(PRELEVATO, 1)
+	INIZ_SEM(DEPOSITATO, 0)
+	cobegin PROD || CONS coend
+end
+```
+
+```pascal
+concurrent procedure PROD
+loop begin
+	<produci un messaggio in M>
+	P(PRELEVATO)
+	BUFFER <- M
+	V(DEPOSITATO)
+end
+```
+
+```pascal
+concurrent procedure
+CONS loop begin
+	P(DEPOSITATO)
+	M <- BUFFER
+	V(PRELEVATO)
+	<consuma il messaggio in M>
+end
+```
+
+## Esercizi
+
+1. Cosa accadrebbe se PRELEVATO venisse inizializzato a 0 e DEPOSITATO a 1?
+1. Il consumatore preleverebbe dalla coda leggendo dal buffer un "messaggio vuoto". 
+
+## Implementazione a Buffer Circolare
+
+```pascal
+concurrent program PRODUTTORI_CONSUMATORI;
+
+// dimensione del buffer, e.g. N = 5
+N = 5;
+
+// definisco il tipo messaggio
+type messaggio = ...;
+
+// definisco indice per gestire buffer
+indice = 0..N-1;
+
+// definisco il BUFFER, un array di grandezza N di messaggi
+var BUFFER: array[indice] of messaggio;
+
+// definisco i due indici
+// D = indice utilizzato per gli inserimenti
+// T = indice usato per le estrazioni
+D, T:indice;
+
+// semafori in mutua esclusione
+USO_T, USO_D: semaforo_binario;
+
+// semafori cooperativi di molteplicità pari a N
+PIENE, VUOTE: semaforo;
+
+concurrent procedure PROD_i /* generico produttore */
+
+concurrent procedure CONS_j /* generico consumatore */
+
+begin
+	INIZ_SEM(USO_D,1);
+	INIZ_SEM(USO_T,1);
+	INIZ_SEM(PIENE,0);
+	INIZ_SEM(VUOTE,N);
+	T <- 0;
+	D <- 0;
+	cobegin ... || PROD_i || CONS_j || ... coend
+end
+```
+
+```pascal
+concurrent procedure PROD_i //generico produttore
+var M: messaggio;
+
+loop
+	
+	<produci un messaggio in M>
+	
+	// attendo che almeno uno spazio nel buffer venga liberato
+	P(VUOTE);
+
+		// richiedo l'uso esclusivo di D, l'indice per gli inserimenti
+		P(USO_D);
+		
+			// aggiungo nel buffer il messaggio
+			BUFFER[D] <- M;
+
+			// definisco l'indice di D, che verrà utilizzato dal 
+			// successivo produttore
+			D <- (D+1) mod N;
+		
+		// rilascio l'indice D
+		V(USO_D);
+
+	// notifico che un messaggio è stato aggiunto nel buffer
+	V(PIENE);
+
+end
+```
+
+```pascal
+//generico consumatore
+concurrent procedure CONS_j
+
+// dichiaro una variabile M di tipo messaggio
+var M: messaggio;
+loop
+
+	// attendo che un messaggio venga inserito nel buffer
+	P(PIENE);
+
+		// richiedo l'uso esclusivo dell'indice T dell'estrazioni
+		P(USO_T);
+
+			// estraggo il valore del messaggio in posizione T
+			M <- BUFFER[T];
+
+			// inizializzo il valore di T che dovrà utilizzare
+			// il successivo consumatore
+			T <- (T+1) mod N;
+
+		// rilascio T
+		V(USO_T);
+
+	// notifico che uno spazio è stato liberato nel buffer
+	V(VUOTE);
+
+	<consuma il messaggio in M>
+end
+```
+
+
+# Regioni critiche
+
+```pascal
+var R: shared T;
+
+region R do
+	<lista istruzioni> // sezione critica con uso di R
+end region
+```
+
+Ciò che sta dentro la sezione critica è indivisibile.
+
+La regione critica è uno strumento pensato per la competizione.
+
+Per risolvere problemi non competitivi ma cooperativi? Esistono le regioni critiche condizionali.
+
+```pascal
+var R: shared T;
+region R do
+	when <cond_su_R> do <lista istruzioni>
+end region
+```
+
+La condizione <cond_su_R> parla di R e sta dentro la sezione critica, perché quando valuti la condizione, devi essere tranquillo che nessuno ti cambi lo stato della risorsa sotto i piedi.
+
+
+
+Region con semafori
+------------------------
+P(R)
+if(<cond>)
+	<istruzioni>
+	<istruzioni>
+	<istruzioni>
+	if(<cond> && <random>)
+		V(Q)
+	else
+		V(R)
+else
+	V(R)
+	P(Q_<cond>)
+------------------------
+
