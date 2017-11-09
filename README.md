@@ -585,6 +585,16 @@ end
 
 ## Implementazione a Buffer Circolare
 
+La soluzione precedentemente vista fa si uso di semafori, ma in realtà è per lo più seriale. Questo perché un produttore non può produrre fin tanto che un consumatore non ha consumato. Una possibile (e unica) sequenza di interleaving sarà:
+prod-cons-prod-cond-...
+
+Questa cosa accade perché produttore e consumatore sono fortemente accoppiati. In particolare sono accoppiati a causa del buffer di dimensione unitaria.
+
+Nella generalizzazione classica questo problema viene superato, in particolare qui la dimensione del buffer non è capace di ospitare un unico messaggio, ma N messaggi. In questo modo il produttore può produrre messaggi anche se il consumatore non li ha consumati.
+
+Inoltre il numero di produttori e di consumatori è varibile. In particolare ci sono P produttore e C consumatori.
+
+
 ```pascal
 concurrent program PRODUTTORI_CONSUMATORI;
 
@@ -600,12 +610,15 @@ indice = 0..N-1;
 // definisco il BUFFER, un array di grandezza N di messaggi
 var BUFFER: array[indice] of messaggio;
 
-// definisco i due indici
-// D = indice utilizzato per gli inserimenti
-// T = indice usato per le estrazioni
-D, T:indice;
+// indice utilizzato per gli inserimenti dai produttori
+// in particolare è l'indice della prima cella utile per inserire
+D: indice;
 
-// semafori in mutua esclusione
+// indice utilizzato per gli inserimenti dai consumatori
+// in particolare è l'indice della prima cella utile per leggere
+T: indice;
+
+// semafori competitivi in mutua esclusione
 USO_T, USO_D: semaforo_binario;
 
 // semafori cooperativi di molteplicità pari a N
@@ -714,7 +727,6 @@ end region
 La condizione <cond_su_R> parla di R e sta dentro la sezione critica, perché quando valuti la condizione, devi essere tranquillo che nessuno ti cambi lo stato della risorsa sotto i piedi.
 
 
-
 Region con semafori
 ------------------------
 P(R)
@@ -731,3 +743,91 @@ else
 	P(Q_<cond>)
 ------------------------
 
+
+
+
+# Monitor
+
+Mette d'accordo il paradigma orientato agli oggetti e quello concorrente. Il costrutto delle regioni critiche condizionali è stato un primo tentativo, ma aveva dei problemi, in particolare le performance, infatti ogni volta che un flusso entra e esce da una regione critica, occorre svegliare tutti per verificare la condizione.
+
+Hoare ha introdotto le primitive wait e signal. Rappresenta un tentativo di unire il tipo di dato astratto con le regioni critiche condizionali.
+
+Istanza di monitor ~= istanza di classe
+
+```pascal
+type <nome_monitor> = monitor
+<dichiarazioni di tipi e costanti globali>;
+var <variabili condivise>;
+entry procedure OP1 (<lista parametri>) begin
+	<dichiarazioni locali>;
+	<corpo di OP1>;
+end
+
+// ...
+
+// è come se fosse un metodo pubblico
+entry procedure OPn (<lista parametri>) begin
+	<dichiarazioni locali>;
+	<corpo di Op_n>;
+end
+
+<eventuali procedure locali al monitor>;
+<procedura di inizializzazione delle var. condivise>;
+
+end monitor;
+```
+
+Le primitive introdotte da Hoare sono wait e signal e cercano di astrarre il concetto di semaforo cooperativo.
+
+```pascal
+// sono interessato a un certo evento (e.g. non_pieno, non_vuoto)
+<variabile-condizione>.wait
+
+// posso dire che si è verificato un certo evento
+<variabile-condizione>.signal
+```
+
+Il legame che esiste tra wait, signal e il monitor qual è ?
+
+Quando faccio la wait viene bloccato il flusso e inserito in una coda. Oltre a questa sospensione viene rilasciato l'uso del monitor. Perché? Perché il monitor rappresenta l'istanza della risorsa alla quale sei interessato. Quindi devi sospendere, dare agli altri la possibilità di lavorarci sopra e sperabilmente attendere che qualche altro fde faccia qualche cosa che sblocchi la tua condizione.
+
+Nella signal, se nessun altro fde è in attesa di quella variabile condizione si prosegue normalmente, altrimenti se c'era qualcuno in attesa (a fare una wait), allora viene rilasciato il monitor, per dare l'occasione a quelli che attendevano l'evento di poter lavorare.  
+
+Quindi non solo viene segnalato che è accaduto qualche cosa, ma gli dai anche l'uso esclusivo di una risorsa, dove la risorsa è il monitor.
+
+Ci sono tante code in ballo. C'è una coda per gestire i flussi di esecuzione, una per ogni condizione.
+
+La signal generalmente deve essere l'ultima cosa che che deve essere eseguita in un flusso di esecuzione. Questo perché? Perché se faccio una signal significa che sono dentro una entry procedure e se non è l'ultima cosa che faccio, allora non viene rilasciato il monitor e come fa a lavorare l'altro flusso se io continuo a usare il monitor.
+
+
+Nella signal_and_wait faccio subito context switch, mentre nella signa_and_continue no. Nella signal_and_continue, la condizione che hai fatto, potrebbe essere invalidata.
+
+In Java la semantica utilizzata è la signal_and_continue.
+
+## Implementazione dei semafori con wait e signal
+
+Implementiamo P e V con due procedure.
+
+```pascal
+type semaforo = monitor
+
+	var S: 0..LAST;
+	S_POSITIVO: condition; //variabile condizione per S>0
+
+	entry procedure P begin
+
+		while (S=0) do S_POSITIVO.wait; end
+		S <- S - 1;
+	end
+
+	entry procedure V begin
+		S <- S + 1;
+		S_POSITIVO.signal;
+	end begin
+
+	S <- 0; end
+
+end monitor;
+```
+
+## Implementazione dei monitor tramite semafori
